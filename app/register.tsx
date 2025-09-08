@@ -1,67 +1,65 @@
+// Register.tsx
 import { Link } from "expo-router";
 import React, { useRef, useState } from "react";
 import {
-  Animated,
-  Easing,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Animated,
+    Easing,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { AuroraBackground, Logo, palette } from "../components/Brand";
 
-export default function Login() {
+export default function Register() {
+  const [agree, setAgree] = useState(false);
+
   return (
     <View style={styles.container}>
       <AuroraBackground />
       <Logo />
 
       <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          placeholder="User"
-          placeholderTextColor="#89a7b6"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor="#89a7b6"
-          secureTextEntry
-        />
+        <TextInput style={styles.input} placeholder="Full name" placeholderTextColor="#89a7b6" />
+        <TextInput style={styles.input} placeholder="Email" placeholderTextColor="#89a7b6" keyboardType="email-address" />
+        <TextInput style={styles.input} placeholder="Username" placeholderTextColor="#89a7b6" />
+        <TextInput style={styles.input} placeholder="Password" placeholderTextColor="#89a7b6" secureTextEntry />
+        <TextInput style={styles.input} placeholder="Confirm password" placeholderTextColor="#89a7b6" secureTextEntry />
 
-        {/* Links en fila y con Expo Router */}
-        <View style={styles.linksRow}>
-          <Link href="/register" asChild>
-            <TouchableOpacity>
-              <Text style={styles.linkText}>Don't have an account?</Text>
-            </TouchableOpacity>
-          </Link>
+        {/* Términos */}
+        <Pressable style={styles.termsRow} onPress={() => setAgree(!agree)}>
+          <View style={[styles.checkbox, agree && styles.checkboxOn]} />
+          <Text style={styles.termsText}>
+            I agree to the <Text style={styles.termsLink}>Terms & Privacy</Text>
+          </Text>
+        </Pressable>
 
-          <Link href="/Cambiar_contra" asChild>
-            <TouchableOpacity>
-              <Text style={styles.linkText}>Forgot Password?</Text>
-            </TouchableOpacity>
-          </Link>
-        </View>
-
-        <Pressable style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}>
-          <Text style={styles.primaryBtnText}>Login</Text>
+        <Pressable style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed, !agree && { opacity: 0.5 }]} disabled={!agree}>
+          <Text style={styles.primaryBtnText}>Create Account</Text>
         </Pressable>
       </View>
 
-      <Text style={styles.separator}>Or login with</Text>
+      <Text style={styles.separator}>Or sign up with</Text>
       <View style={styles.socialRow}>
         <IGButton label="Instagram" onPress={() => {}} />
         <View style={{ width: 16 }} />
         <GMButton label="Google" onPress={() => {}} />
       </View>
+
+      <TouchableOpacity style={{ marginTop: 16 }}>
+        <Link href="/">
+            <Text style={{ color: palette.muted }}>
+                Already have an account? <Text style={{ color: palette.text, fontWeight: "700" }}>Log in</Text>
+            </Text>
+        </Link>
+      </TouchableOpacity>
     </View>
   );
 }
 
-/* ---------- Botón Instagram con “relleno” animado ---------- */
+/* --- Botones sociales (mismo estilo que Login) --- */
 const IGButton = ({ label, onPress }: { label: string; onPress?: () => void }) => {
   const [width, setWidth] = useState(0);
   const [pressed, setPressed] = useState(false);
@@ -89,7 +87,6 @@ const IGButton = ({ label, onPress }: { label: string; onPress?: () => void }) =
   );
 };
 
-/* ---------- Botón Google con “relleno” animado ---------- */
 const GMButton = ({ label, onPress }: { label: string; onPress?: () => void }) => {
   const [width, setWidth] = useState(0);
   const [pressed, setPressed] = useState(false);
@@ -138,18 +135,14 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
 
-  /* fila de enlaces */
-  linksRow: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 10,
-  },
-  linkText: { color: palette.muted, fontWeight: "600" },
+  termsRow: { width: "100%", flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12, marginBottom: 4 },
+  checkbox: { width: 18, height: 18, borderRadius: 5, borderWidth: 2, borderColor: palette.accent, backgroundColor: "transparent" },
+  checkboxOn: { backgroundColor: palette.accent },
+  termsText: { color: palette.muted },
+  termsLink: { color: palette.text, fontWeight: "700" },
 
   primaryBtn: {
-    marginTop: 16,
+    marginTop: 14,
     width: "100%",
     height: 50,
     borderRadius: 16,
@@ -167,36 +160,20 @@ const styles = StyleSheet.create({
 
   separator: { color: palette.text, marginTop: 22, marginBottom: 10 },
 
-  socialRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 10,
-  },
+  socialRow: { flexDirection: "row", justifyContent: "center", alignItems: "center" },
+
   igBtn: {
-    borderWidth: 1,
-    borderColor: "rgb(255,0,0)",
-    borderRadius: 25,
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-    overflow: "hidden",
-    position: "relative",
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1, borderColor: "rgb(255,0,0)", borderRadius: 25,
+    paddingVertical: 12, paddingHorizontal: 28, overflow: "hidden",
+    position: "relative", alignItems: "center", justifyContent: "center",
   },
   igFill: { position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: "rgb(255,0,0)", zIndex: -1 },
   igText: { color: "rgb(255,0,0)", fontSize: 17, fontWeight: "700" },
 
   gmBtn: {
-    borderWidth: 1,
-    borderColor: "rgba(25, 100, 2, 1)",
-    borderRadius: 25,
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-    overflow: "hidden",
-    position: "relative",
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1, borderColor: "rgba(25, 100, 2, 1)", borderRadius: 25,
+    paddingVertical: 12, paddingHorizontal: 28, overflow: "hidden",
+    position: "relative", alignItems: "center", justifyContent: "center",
   },
   gmFill: { position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: "rgba(18, 134, 5, 1)", zIndex: -1 },
   gmText: { color: "#ffffff", fontSize: 17, fontWeight: "700" },
