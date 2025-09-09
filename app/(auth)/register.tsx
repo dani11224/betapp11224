@@ -11,7 +11,7 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { AuroraBackground, Logo, palette } from "../components/Brand";
+import { AuroraBackground, Logo, palette } from "../../components/Brand";
 
 export default function Register() {
   const [agree, setAgree] = useState(false);
@@ -49,7 +49,7 @@ export default function Register() {
       </View>
 
       <TouchableOpacity style={{ marginTop: 16 }}>
-        <Link href="/">
+        <Link href="/(auth)/login" asChild>
             <Text style={{ color: palette.muted }}>
                 Already have an account? <Text style={{ color: palette.text, fontWeight: "700" }}>Log in</Text>
             </Text>

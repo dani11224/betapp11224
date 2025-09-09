@@ -3,7 +3,7 @@ import { Link, router } from "expo-router";
 import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
-import { AuroraBackground, Logo, palette } from "../components/Brand";
+import { AuroraBackground, Logo, palette } from "../../components/Brand";
 
 export default function Cambiar_contra() {
   const [step, setStep] = useState<"request" | "reset">("request");
@@ -37,7 +37,7 @@ export default function Cambiar_contra() {
     // TODO: llama a tu API para confirmar código y actualizar contraseña
     setTimeout(() => {
       setLoading(false);
-      router.replace("/"); // vuelve al login
+      router.replace("/(auth)/login"); // vuelve al login
     }, 900);
   };
 
@@ -78,7 +78,7 @@ export default function Cambiar_contra() {
               </Text>
             </Pressable>
 
-            <Link href="/" asChild>
+            <Link href="/(auth)/login" asChild>
               <TouchableOpacity style={{ marginTop: 14 }}>
                 <Text style={styles.linkText}>Back to login</Text>
               </TouchableOpacity>
@@ -146,7 +146,7 @@ export default function Cambiar_contra() {
               </Text>
             </Pressable>
 
-            <Link href="/" asChild> 
+            <Link href="/(auth)/login" asChild> 
               <TouchableOpacity style={{ marginTop: 14 }}>
                 <Text style={styles.linkText}>Back to login</Text>
               </TouchableOpacity>
