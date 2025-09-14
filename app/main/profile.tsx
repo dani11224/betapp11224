@@ -1,14 +1,16 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useContext, useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AuroraBackground, Logo, palette } from "../../components/Brand";
+import { AuthContext } from "@/contexts/Auth_contexts";
 
 export default function Profile() {
   const [hidden, setHidden] = useState(false);
-  // Example: replace with your API/global state
   const [balance] = useState<number>(250000); // COP
+
+  const { user, logout, isLoading } = useContext(AuthContext);
 
   const formatted = useMemo(() => {
     try {
@@ -22,6 +24,11 @@ export default function Profile() {
     }
   }, [balance]);
 
+  const onLogout = async () => {
+    await logout();                    // <-- cierra sesión real
+    router.replace("/(auth)/login");   // <-- luego navega al login
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -31,8 +38,10 @@ export default function Profile() {
           {/* Header */}
           <View style={styles.header}>
             <Logo />
-            <Text style={styles.username}>User</Text>
-            <Text style={styles.muted}>ID: 12345678</Text>
+            <Text style={styles.username}>
+              {user?.user_metadata?.full_name || user?.email || "User"}
+            </Text>
+            <Text style={styles.muted}>ID: {user?.id ? user.id.slice(0, 8) : "—"}</Text>
           </View>
 
           {/* Balance card */}
@@ -77,11 +86,18 @@ export default function Profile() {
 
           {/* Logout */}
           <Pressable
-            onPress={() => router.replace("/(auth)/login")}
-            style={({ pressed }) => [styles.logoutBtn, pressed && { opacity: 0.9 }]}
+            onPress={onLogout}
+            disabled={isLoading}
+            style={({ pressed }) => [styles.logoutBtn, pressed && { opacity: 0.9 }, isLoading && { opacity: 0.6 }]}
           >
-            <MaterialIcons name="logout" size={18} color="#fff" />
-            <Text style={styles.logoutText}>Log out</Text>
+            {isLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <MaterialIcons name="logout" size={18} color="#fff" />
+                <Text style={styles.logoutText}>Log out</Text>
+              </>
+            )}
           </Pressable>
 
           <View style={{ height: 28 }} />
@@ -129,10 +145,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 /* ----- Styles ----- */
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: palette.bg,
-  },
+  safeArea: { flex: 1, backgroundColor: palette.bg },
   container: { flex: 1, backgroundColor: palette.bg },
   content: { padding: 20, paddingBottom: 32 },
 

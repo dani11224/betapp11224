@@ -1,18 +1,55 @@
+// app/(auth)/login.tsx
+import { AuthContext } from "@/contexts/Auth_contexts";
 import { Link, router } from "expo-router";
-import React, { useRef, useState } from "react";
+import React, { useContext, useRef, useState } from "react";
 import {
-    Animated,
-    Easing,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { AuroraBackground, Logo, palette } from "../../components/Brand";
 
 export default function Login() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const context = useContext(AuthContext);
+
+  const handleLogin = async () => {
+    setError(null);
+
+    // Validación rápida opcional
+    if (!email || !password) {
+      setError("Please enter your email and password.");
+      return;
+    }
+
+    const { error } = await context.login(email, password);
+
+    if (error) {
+      const msg = error.toLowerCase();
+
+      if (msg.includes("invalid login credentials")) {
+        setError("Email or password is incorrect");
+      } else if (msg.includes("email not confirmed")) {
+        setError("Please confirm your email before logging in.");
+      } else {
+        setError("Login failed. Please try again.");
+      }
+      return; // <- NO navegues si falló
+    }
+
+    // Éxito
+    router.replace("/main/homeScreen");
+  };
+
+
   return (
     <View style={styles.container}>
       <AuroraBackground />
@@ -21,17 +58,26 @@ export default function Login() {
       <View style={styles.form}>
         <TextInput
           style={styles.input}
-          placeholder="User"
+          placeholder="Email"
           placeholderTextColor="#89a7b6"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
         />
         <TextInput
           style={styles.input}
           placeholder="Password"
           placeholderTextColor="#89a7b6"
           secureTextEntry
+          value={password}
+          onChangeText={setPassword}
         />
 
-        {/* Links en fila y con Expo Router */}
+        {/* Feedback */}
+        {!!error && <Text style={styles.error}>{error}</Text>}
+
+        {/* Links en fila */}
         <View style={styles.linksRow}>
           <Link href="/(auth)/register" asChild>
             <TouchableOpacity>
@@ -46,10 +92,19 @@ export default function Login() {
           </Link>
         </View>
 
-        <Pressable 
-            onPress={() => router.replace("/main/homeScreen")}
-            style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}>
-          <Text style={styles.primaryBtnText}>Login</Text>
+        <Pressable
+          onPress={handleLogin}
+          disabled={context.isLoading}
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            (pressed || context.isLoading) && styles.primaryBtnPressed,
+          ]}
+        >
+          {context.isLoading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.primaryBtnText}>Login</Text>
+          )}
         </Pressable>
       </View>
 
@@ -71,14 +126,15 @@ const IGButton = ({ label, onPress }: { label: string; onPress?: () => void }) =
 
   const pressIn = () => {
     setPressed(true);
-    Animated.timing(fill, { toValue: 1, duration: 350, easing: Easing.out(Easing.quad), useNativeDriver: false }).start();
+    Animated.timing(fill, { toValue: 1, duration: 350, useNativeDriver: false }).start();
   };
   const pressOut = () => {
-    Animated.timing(fill, { toValue: 0, duration: 350, easing: Easing.out(Easing.quad), useNativeDriver: false }).start(() => {
+    Animated.timing(fill, { toValue: 0, duration: 350, useNativeDriver: false }).start(() => {
       setPressed(false);
       onPress && onPress();
     });
   };
+
   const animatedWidth = fill.interpolate({ inputRange: [0, 1], outputRange: [0, width] });
 
   return (
@@ -99,14 +155,15 @@ const GMButton = ({ label, onPress }: { label: string; onPress?: () => void }) =
 
   const pressIn = () => {
     setPressed(true);
-    Animated.timing(fill, { toValue: 1, duration: 350, easing: Easing.out(Easing.quad), useNativeDriver: false }).start();
+    Animated.timing(fill, { toValue: 1, duration: 350, useNativeDriver: false }).start();
   };
   const pressOut = () => {
-    Animated.timing(fill, { toValue: 0, duration: 350, easing: Easing.out(Easing.quad), useNativeDriver: false }).start(() => {
+    Animated.timing(fill, { toValue: 0, duration: 350, useNativeDriver: false }).start(() => {
       setPressed(false);
       onPress && onPress();
     });
   };
+
   const animatedWidth = fill.interpolate({ inputRange: [0, 1], outputRange: [0, width] });
 
   return (
@@ -167,6 +224,7 @@ const styles = StyleSheet.create({
   primaryBtnPressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
   primaryBtnText: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
 
+  error: { color: "#c22525", alignSelf: "flex-start", marginTop: 8 },
   separator: { color: palette.text, marginTop: 22, marginBottom: 10 },
 
   socialRow: {
