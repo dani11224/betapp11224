@@ -1,7 +1,8 @@
-import { Tabs, Redirect } from "expo-router";
+// app/main/_layout.tsx
 import { MaterialIcons } from "@expo/vector-icons";
-import { useAuth } from "../../contexts/Auth_contexts";
+import { Redirect, Tabs } from "expo-router";
 import { palette } from "../../components/Brand";
+import { useAuth } from "../../contexts/Auth_contexts";
 
 export default function MainLayout() {
   const { session, isLoading } = useAuth();
@@ -19,15 +20,24 @@ export default function MainLayout() {
     >
       <Tabs.Screen
         name="homeScreen"
-        options={{ title: "Home", tabBarIcon: ({ color, size }) => <MaterialIcons name="sports-soccer" size={size} color={color} /> }}
+        options={{
+          title: "Home",
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="sports-soccer" size={size} color={color} />,
+        }}
       />
       <Tabs.Screen
         name="transactions"
-        options={{ title: "Transactions", tabBarIcon: ({ color, size }) => <MaterialIcons name="receipt-long" size={size} color={color} /> }}
+        options={{
+          title: "Transactions",
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="receipt-long" size={size} color={color} />,
+        }}
       />
       <Tabs.Screen
         name="profile"
-        options={{ title: "Profile", tabBarIcon: ({ color, size }) => <MaterialIcons name="person" size={size} color={color} /> }}
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="person" size={size} color={color} />,
+        }}
       />
     </Tabs>
   );

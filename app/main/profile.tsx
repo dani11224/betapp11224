@@ -1,16 +1,57 @@
+// app/main/profile.tsx
+import { AuthContext } from "@/contexts/Auth_contexts";
+import { fetchMyProfile } from "@/utils/profiles";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useContext, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View, ActivityIndicator } from "react-native";
+import React, { useContext, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AuroraBackground, Logo, palette } from "../../components/Brand";
-import { AuthContext } from "@/contexts/Auth_contexts";
 
 export default function Profile() {
   const [hidden, setHidden] = useState(false);
   const [balance] = useState<number>(250000); // COP
-
   const { user, logout, isLoading } = useContext(AuthContext);
+
+  // ======= Username for header =======
+  const [headerUsername, setHeaderUsername] = useState<string>("User");
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!user?.id) return;
+      try {
+        const p = await fetchMyProfile(user.id);
+        const fromProfiles = p?.username?.trim();
+        const fromMeta =
+          (user.user_metadata as any)?.username?.trim() ||
+          (user.user_metadata as any)?.full_name?.trim() ||
+          (user.user_metadata as any)?.name?.trim();
+        const fromEmail = user.email ? user.email.split("@")[0] : "";
+
+        const finalName =
+          (fromProfiles && fromProfiles.length > 0 && fromProfiles) ||
+          (fromMeta && fromMeta.length > 0 && fromMeta) ||
+          (fromEmail && fromEmail.length > 0 && fromEmail) ||
+          "User";
+
+        if (mounted) setHeaderUsername(finalName);
+      } catch {
+        const fallback = user?.email ? user.email.split("@")[0] : "User";
+        if (mounted) setHeaderUsername(fallback);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
 
   const formatted = useMemo(() => {
     try {
@@ -25,8 +66,8 @@ export default function Profile() {
   }, [balance]);
 
   const onLogout = async () => {
-    await logout();                    // <-- cierra sesión real
-    router.replace("/(auth)/login");   // <-- luego navega al login
+    await logout();
+    router.replace("/(auth)/login");
   };
 
   return (
@@ -38,9 +79,7 @@ export default function Profile() {
           {/* Header */}
           <View style={styles.header}>
             <Logo />
-            <Text style={styles.username}>
-              {user?.user_metadata?.full_name || user?.email || "User"}
-            </Text>
+            <Text style={styles.username}>{headerUsername}</Text>
             <Text style={styles.muted}>ID: {user?.id ? user.id.slice(0, 8) : "—"}</Text>
           </View>
 
@@ -70,7 +109,7 @@ export default function Profile() {
           {/* Quick links */}
           <Text style={styles.sectionTitle}>Your account</Text>
           <View style={styles.grid}>
-            <Tile icon="person" label="Personal info" onPress={() => {}} />
+            <Tile icon="person" label="Personal info" onPress={() => router.push("/profile/Private_Information")} />
             <Tile icon="security" label="Security" onPress={() => router.push("/(auth)/Cambiar_contra")} />
             <Tile icon="notifications" label="Notifications" onPress={() => {}} />
             <Tile icon="support-agent" label="Support" onPress={() => {}} />

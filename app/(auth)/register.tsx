@@ -1,266 +1,291 @@
 // app/(auth)/register.tsx
-import { AuthContext } from "@/contexts/Auth_contexts";
-import { Link, router } from "expo-router";
-import React, { useContext, useRef, useState } from "react";
+import { supabase } from "@/utils/supabase";
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
+  Alert,
   Pressable,
+  ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
-import { AuroraBackground, Logo, palette } from "../../components/Brand";
+
+// ====== Paleta roja / neón ======
+const BG = "#0F1115";
+const BG_MID = "#171A22";
+const BORDER = "#2A2F3C";
+const TEXT = "#F4F6FB";
+const MUTED = "#9AA3B2";
+const RED = "#FF4D6D";           // primario
+const RED_SOFT = "#FF7A90";      // brillo
+const PINK_GLOW = "#FF91A8";
 
 export default function Register() {
-  const [agree, setAgree] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [username, setUsername] = useState(""); // opcional: si luego lo guardas en el perfil
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [showPass, setShowPass] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const context = useContext(AuthContext);
-
-  const emailOK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const passLenOK = password.length >= 8;
-  const same = password === confirm;
-  const canSubmit = agree && name && emailOK && passLenOK && same;
-
-  const handleRegister = async () => {
-    setError(null);
-    if (!canSubmit) {
-      if (!name || !email || !password || !confirm) return setError("Please fill all fields");
-      if (!emailOK) return setError("Invalid email");
-      if (!passLenOK) return setError("Password must be at least 8 characters");
-      if (!same) return setError("Passwords do not match");
-      if (!agree) return setError("You must accept the Terms & Privacy");
-      return;
-    }
+  async function handleRegister() {
+    if (!name.trim()) return Alert.alert("Falta tu nombre");
+    if (!email.trim()) return Alert.alert("Falta el email");
+    if (password.length < 6) return Alert.alert("La contraseña debe tener 6+ caracteres");
+    if (password !== confirm) return Alert.alert("Las contraseñas no coinciden");
 
     try {
-      await context.register(email, password, name); // tu AuthContext debe lanzar si falla
-      router.replace("/main/homeScreen");
+      setLoading(true);
+
+      // 1) Auth
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { data: { name: name.trim() } },
+      });
+      if (error) throw error;
+
+      // 2) profiles (no rompe si ya existe por trigger)
+      const user = data.user;
+      if (user) {
+        const { error: upsertErr } = await supabase
+          .from("profiles")
+          .upsert(
+            {
+              id: user.id,
+              email: user.email,
+              name: name.trim() || null,
+            },
+            { onConflict: "id" }
+          );
+
+        if (upsertErr) console.warn("profiles upsert error:", upsertErr);
+      }
+
+      Alert.alert(
+        "Revisa tu correo",
+        "Te enviamos un enlace para confirmar tu cuenta.",
+        [{ text: "OK", onPress: () => router.replace("/(auth)/login") }]
+      );
     } catch (e: any) {
-      setError(e?.message || "Registration failed");
+      Alert.alert("No se pudo registrar", e?.message ?? "Intenta de nuevo");
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
   return (
-    <View style={styles.container}>
-      <AuroraBackground />
-      <Logo />
+    <View style={{ flex: 1, backgroundColor: BG }}>
+      <StatusBar barStyle="light-content" />
+      {/* ==== “Cositos” (burbujas) decorativas ==== */}
+      <View pointerEvents="none" style={styles.bubbleOne} />
+      <View pointerEvents="none" style={styles.bubbleTwo} />
+      <View pointerEvents="none" style={styles.bubbleThree} />
 
-      <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          placeholder="Full name"
-          placeholderTextColor="#89a7b6"
-          value={name}
-          onChangeText={setName}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor="#89a7b6"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Username"
-          placeholderTextColor="#89a7b6"
-          value={username}
-          onChangeText={setUsername}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password (min 8)"
-          placeholderTextColor="#89a7b6"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Confirm password"
-          placeholderTextColor="#89a7b6"
-          secureTextEntry
-          value={confirm}
-          onChangeText={setConfirm}
-        />
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.title}>Crear cuenta</Text>
+        <Text style={styles.subtitle}>
+          Regístrate y sincroniza tu perfil con Supabase.
+        </Text>
 
-        {/* Feedback */}
-        {!!error && <Text style={{ color: "#c22525", marginTop: 8 }}>{error}</Text>}
-        {context.isLoading && <Text style={{ color: palette.muted, marginTop: 8 }}>Loading...</Text>}
+        <View style={styles.field}>
+          <Text style={styles.label}>Nombre</Text>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="Tu nombre"
+            placeholderTextColor={MUTED}
+            style={styles.input}
+            autoCapitalize="words"
+            autoCorrect={false}
+          />
+        </View>
 
-        {/* Terms */}
-        <Pressable style={styles.termsRow} onPress={() => setAgree(!agree)}>
-          <View style={[styles.checkbox, agree && styles.checkboxOn]} />
-          <Text style={styles.termsText}>
-            I agree to the <Text style={styles.termsLink}>Terms & Privacy</Text>
-          </Text>
-        </Pressable>
+        <View style={styles.field}>
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            placeholder="tucorreo@ejemplo.com"
+            placeholderTextColor={MUTED}
+            style={styles.input}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Contraseña</Text>
+          <View style={styles.passwordWrap}>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Mínimo 6 caracteres"
+              placeholderTextColor={MUTED}
+              style={[styles.input, { flex: 1, paddingRight: 44 }]}
+              secureTextEntry={!showPass}
+              autoCapitalize="none"
+            />
+            <Pressable style={styles.eye} onPress={() => setShowPass((s) => !s)}>
+              <Ionicons name={showPass ? "eye-off" : "eye"} size={20} color={MUTED} />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Confirmar contraseña</Text>
+          <TextInput
+            value={confirm}
+            onChangeText={setConfirm}
+            placeholder="Repite tu contraseña"
+            placeholderTextColor={MUTED}
+            style={styles.input}
+            secureTextEntry={!showPass}
+            autoCapitalize="none"
+          />
+        </View>
 
         <Pressable
           onPress={handleRegister}
-          disabled={!canSubmit || context.isLoading}
+          disabled={loading}
           style={({ pressed }) => [
-            styles.primaryBtn,
-            (pressed || context.isLoading) && styles.primaryBtnPressed,
-            (!canSubmit || context.isLoading) && { opacity: 0.5 },
+            styles.button,
+            pressed && { transform: [{ scale: 0.99 }] },
+            loading && { opacity: 0.7 },
           ]}
         >
-          {context.isLoading ? (
-            <ActivityIndicator color="#fff" />
+          {loading ? (
+            <ActivityIndicator color={TEXT} />
           ) : (
-            <Text style={styles.primaryBtnText}>Create Account</Text>
+            <Text style={styles.buttonText}>Crear cuenta</Text>
           )}
         </Pressable>
-      </View>
 
-      <Text style={styles.separator}>Or sign up with</Text>
-      <View style={styles.socialRow}>
-        <IGButton label="Instagram" onPress={() => {}} />
-        <View style={{ width: 16 }} />
-        <GMButton label="Google" onPress={() => {}} />
-      </View>
-
-      <Link href="/(auth)/login" asChild>
-        <TouchableOpacity style={{ marginTop: 16 }}>
-          <Text style={{ color: palette.muted }}>
-            Already have an account?{" "}
-            <Text style={{ color: palette.text, fontWeight: "700" }}>Log in</Text>
+        <Pressable
+          onPress={() => router.replace("/(auth)/login")}
+          style={{ marginTop: 16 }}
+        >
+          <Text style={{ color: MUTED, textAlign: "center" }}>
+            ¿Ya tienes cuenta? <Text style={{ color: RED_SOFT }}>Inicia sesión</Text>
           </Text>
-        </TouchableOpacity>
-      </Link>
+        </Pressable>
+      </ScrollView>
     </View>
   );
 }
 
-/* --- Social buttons (same style as Login) --- */
-const IGButton = ({ label, onPress }: { label: string; onPress?: () => void }) => {
-  const [width, setWidth] = useState(0);
-  const [pressed, setPressed] = useState(false);
-  const fill = useRef(new Animated.Value(0)).current;
-
-  const pressIn = () => {
-    setPressed(true);
-    Animated.timing(fill, { toValue: 1, duration: 350, useNativeDriver: false }).start();
-  };
-  const pressOut = () => {
-    Animated.timing(fill, { toValue: 0, duration: 350, useNativeDriver: false }).start(() => {
-      setPressed(false);
-      onPress && onPress();
-    });
-  };
-
-  const animatedWidth = fill.interpolate({ inputRange: [0, 1], outputRange: [0, width] });
-
-  return (
-    <Pressable onPressIn={pressIn} onPressOut={pressOut}>
-      <View style={styles.igBtn} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-        <Animated.View style={[styles.igFill, { width: animatedWidth }]} />
-        <Text style={[styles.igText, pressed && { color: "#fff" }]}>{label}</Text>
-      </View>
-    </Pressable>
-  );
-};
-
-const GMButton = ({ label, onPress }: { label: string; onPress?: () => void }) => {
-  const [width, setWidth] = useState(0);
-  const [pressed, setPressed] = useState(false);
-  const fill = useRef(new Animated.Value(0)).current;
-
-  const pressIn = () => {
-    setPressed(true);
-    Animated.timing(fill, { toValue: 1, duration: 350, useNativeDriver: false }).start();
-  };
-  const pressOut = () => {
-    Animated.timing(fill, { toValue: 0, duration: 350, useNativeDriver: false }).start(() => {
-      setPressed(false);
-      onPress && onPress();
-    });
-  };
-
-  const animatedWidth = fill.interpolate({ inputRange: [0, 1], outputRange: [0, width] });
-
-  return (
-    <Pressable onPressIn={pressIn} onPressOut={pressOut}>
-      <View style={styles.gmBtn} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-        <Animated.View style={[styles.gmFill, { width: animatedWidth }]} />
-        <Text style={[styles.gmText, pressed && { color: "#fff" }]}>{label}</Text>
-      </View>
-    </Pressable>
-  );
-};
-
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: palette.bg,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
+    padding: 20,
+    paddingTop: 56,
   },
-  form: { width: "100%", maxWidth: 420, alignItems: "center" },
+  title: {
+    color: TEXT,
+    fontSize: 30,
+    fontWeight: "800",
+    marginBottom: 6,
+    textShadowColor: PINK_GLOW,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
+  },
+  subtitle: {
+    color: MUTED,
+    marginBottom: 20,
+  },
+  field: {
+    marginBottom: 14,
+  },
+  label: {
+    color: MUTED,
+    marginBottom: 8,
+  },
   input: {
-    width: "100%",
-    height: 48,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    backgroundColor: palette.inputBg,
+    backgroundColor: BG_MID,
     borderWidth: 1,
-    borderColor: palette.border,
-    color: palette.text,
-    marginTop: 14,
-  },
-
-  termsRow: { width: "100%", flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12, marginBottom: 4 },
-  checkbox: { width: 18, height: 18, borderRadius: 5, borderWidth: 2, borderColor: palette.accent, backgroundColor: "transparent" },
-  checkboxOn: { backgroundColor: palette.accent },
-  termsText: { color: palette.muted },
-  termsLink: { color: palette.text, fontWeight: "700" },
-
-  primaryBtn: {
-    marginTop: 14,
-    width: "100%",
-    height: 50,
+    borderColor: BORDER,
     borderRadius: 16,
-    backgroundColor: palette.accent,
-    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: TEXT,
+    fontSize: 16,
+  },
+  passwordWrap: {
+    position: "relative",
     justifyContent: "center",
-    shadowColor: palette.accent,
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
+  },
+  eye: {
+    position: "absolute",
+    right: 12,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  button: {
+    backgroundColor: RED,
+    paddingVertical: 14,
+    borderRadius: 18,
+    alignItems: "center",
+    marginTop: 8,
+    shadowColor: RED,
     shadowOffset: { width: 0, height: 0 },
-    elevation: 6,
+    shadowOpacity: 0.9,
+    shadowRadius: 16,
+    borderWidth: 1,
+    borderColor: "#FF264F33",
   },
-  primaryBtnPressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
-  primaryBtnText: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
-
-  separator: { color: palette.text, marginTop: 22, marginBottom: 10 },
-
-  socialRow: { flexDirection: "row", justifyContent: "center", alignItems: "center" },
-
-  igBtn: {
-    borderWidth: 1, borderColor: "rgb(255,0,0)", borderRadius: 25,
-    paddingVertical: 12, paddingHorizontal: 28, overflow: "hidden",
-    position: "relative", alignItems: "center", justifyContent: "center",
+  buttonText: {
+    color: TEXT,
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.3,
   },
-  igFill: { position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: "rgb(255,0,0)", zIndex: -1 },
-  igText: { color: "rgb(255,0,0)", fontSize: 17, fontWeight: "700" },
-
-  gmBtn: {
-    borderWidth: 1, borderColor: "rgba(25, 100, 2, 1)", borderRadius: 25,
-    paddingVertical: 12, paddingHorizontal: 28, overflow: "hidden",
-    position: "relative", alignItems: "center", justifyContent: "center",
+  // === Burbujas ("cositos") ===
+  bubbleOne: {
+    position: "absolute",
+    width: 220,
+    height: 220,
+    borderRadius: 999,
+    backgroundColor: "#FF29444D",
+    top: -40,
+    right: -60,
+    shadowColor: RED,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 40,
   },
-  gmFill: { position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: "rgba(18, 134, 5, 1)", zIndex: -1 },
-  gmText: { color: "#ffffff", fontSize: 17, fontWeight: "700" },
+  bubbleTwo: {
+    position: "absolute",
+    width: 160,
+    height: 160,
+    borderRadius: 999,
+    backgroundColor: "#FF6B6B33",
+    bottom: 80,
+    left: -40,
+    shadowColor: PINK_GLOW,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 30,
+  },
+  bubbleThree: {
+    position: "absolute",
+    width: 90,
+    height: 90,
+    borderRadius: 999,
+    backgroundColor: "#FF91A81F",
+    bottom: 180,
+    right: 24,
+    shadowColor: "#FF91A8",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 18,
+  },
 });
