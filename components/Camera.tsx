@@ -1,23 +1,23 @@
-// components/Camera.tsx
-import React, { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  Image,
-} from "react-native";
+// app/components/Camera.tsx
+import { supabase } from "@/utils/supabase"; // Asegúrate de importar supabase para la subida
+import { MaterialIcons } from "@expo/vector-icons";
 import {
   CameraView,
   useCameraPermissions,
   type CameraPictureOptions,
 } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import { MaterialIcons } from "@expo/vector-icons";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View
+} from "react-native";
 
-// Si prefieres, importa tu Brand palette:
-// import { palette } from "@/components/Brand";
 const palette = {
   bg: "#0F1115",
   inputBg: "#171A22",
@@ -66,7 +66,10 @@ export default function Camera({
         quality: 0.9,
       });
       if (!res.canceled && res.assets?.length) {
-        setPreview(res.assets[0].uri);
+        const uri = res.assets[0].uri;
+        setPreview(uri); // Mostrar la vista previa
+        await uploadImageToSupabase(uri); // Subir al bucket
+        onSelect(uri); // Pasar el URI al componente padre
       }
     } finally {
       setIsBusy(false);
@@ -79,22 +82,67 @@ export default function Camera({
       setIsBusy(true);
       const options: CameraPictureOptions = { quality: 0.9, skipProcessing: true };
       const photo = await cameraRef.current.takePictureAsync(options);
-      if (photo?.uri) setPreview(photo.uri);
+      if (photo?.uri) {
+        setPreview(photo.uri); // Mostrar la vista previa
+        await uploadImageToSupabase(photo.uri); // Subir al bucket
+        onSelect(photo.uri); // Pasar el URI al componente padre
+      }
     } finally {
       setIsBusy(false);
     }
   };
 
+  // Función para subir la imagen al bucket de Supabase
+  const uploadImageToSupabase = async (uri: string) => {
+    try {
+      // Subir la imagen directamente usando arrayBuffer()
+      const response = await fetch(uri);
+      const imageFile = await response.arrayBuffer();  // Usamos arrayBuffer directamente
+
+      // Obtener el nombre del archivo
+      const filename = uri.split("/").pop();
+
+      // Subir la imagen al bucket de Supabase
+      const { data, error } = await supabase
+        .storage
+        .from("avatars")
+        .upload(`avatars/${filename}`, imageFile, {
+          contentType: "image/jpeg", // O el tipo correcto según la imagen
+          cacheControl: "3600",
+          upsert: true,
+        });
+
+      if (error) {
+        throw new Error(error.message); // Si hay error en la carga, lanzamos una excepción
+      }
+
+      // Obtener la URL pública de la imagen
+      const publicUrlResponse = supabase.storage.from("avatars").getPublicUrl(data?.path);
+
+      // Aquí ya no necesitamos comprobar error, ya que getPublicUrl devuelve directamente el objeto
+      const publicUrl = publicUrlResponse.data.publicUrl;  // Accedemos a publicUrl de la respuesta
+
+      console.log("Image uploaded successfully! Public URL:", publicUrl);
+
+      return publicUrl;  // Devolvemos la URL pública
+    } catch (e) {
+      console.log("Error uploading image:", e);
+      Alert.alert("Upload failed", "There was an error uploading your image.");
+    }
+  };
+
+
+  const resetPreview = () => setPreview(null);  
+
+  // Función para usar la foto seleccionada/capturada
   const usePhoto = () => {
     if (preview) onSelect(preview);
   };
 
-  const resetPreview = () => setPreview(null);
-
   if (!camPermission) {
     return (
       <Centered>
-        <ActivityIndicator color={palette.text} />
+        <ActivityIndicator color="#fff" />
         <Text style={styles.muted}>Checking permissions…</Text>
       </Centered>
     );
@@ -129,7 +177,6 @@ export default function Camera({
   // Camera
   return (
     <View style={styles.wrapper}>
-      {/* “cositos” */}
       <View pointerEvents="none" style={styles.bubbleOne} />
       <View pointerEvents="none" style={styles.bubbleTwo} />
       <View pointerEvents="none" style={styles.bubbleThree} />

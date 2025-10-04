@@ -118,7 +118,7 @@ export async function saveMyProfile(userId: string, values: Partial<Profile>) {
       birth_date: cleaned.birth_date ?? null, // 'YYYY-MM-DD' está bien para DATE
       phone: cleaned.phone ?? null,
       gender: cleaned.gender ?? null,
-      role: cleaned.role ?? null,
+      role: cleaned.role ?? "CLIENT", // asigna un rol por defecto
       updated_at: now,
       // created_at lo pone DEFAULT NOW()
     };

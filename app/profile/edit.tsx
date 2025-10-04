@@ -3,7 +3,6 @@ import { AuroraBackground, Logo, palette } from "@/components/Brand";
 import { AuthContext } from "@/contexts/Auth_contexts";
 import { fetchMyProfile, saveMyProfile } from "@/utils/profiles";
 import { supabase } from "@/utils/supabase";
-import { Buffer } from "buffer";
 import * as FileSystem from "expo-file-system";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useContext, useEffect, useState } from "react";
@@ -39,6 +38,7 @@ export default function EditProfile() {
   const [location, setLocation] = useState("");
   const [phone, setPhone] = useState("");
 
+  // Fetch the profile data from Supabase
   useEffect(() => {
     if (!user?.id) return;
     (async () => {
@@ -51,7 +51,10 @@ export default function EditProfile() {
           setWebsite(p?.website ?? "");
           setLocation(p?.location ?? "");
           setPhone(p?.phone ?? "");
-          if (p?.avatar_url) setAvatarUri(p.avatar_url);
+          if (p?.avatar_url) {
+            setAvatarUri(p.avatar_url);
+            console.log("Avatar URL loaded from profile:", p.avatar_url); // Debugging line
+          }
         } else {
           setName(user.user_metadata?.name ?? "");
         }
@@ -63,13 +66,16 @@ export default function EditProfile() {
     })();
   }, [user?.id]);
 
+  // Apply avatar from params
   const applyAvatarFromParams = useCallback(() => {
     const rawParam = Array.isArray(params?.avatarUri) ? params.avatarUri[0] : params?.avatarUri;
     if (rawParam && typeof rawParam === "string") {
       try {
         setAvatarUri(decodeURIComponent(rawParam));
+        console.log("Avatar URI from params:", rawParam); // Debugging line
       } catch {
         setAvatarUri(rawParam);
+        console.log("Avatar URI from params (catch):", rawParam); // Debugging line
       }
     }
   }, [params?.avatarUri]);
@@ -99,8 +105,11 @@ export default function EditProfile() {
       // Si viene de la cámara/galería será file://... → subimos a Storage
       if (avatarUri?.startsWith("file:")) {
         publicAvatarUrl = await uploadAvatar(user.id, avatarUri);
+        console.log("Uploaded avatar URL:", publicAvatarUrl); // Debugging line
+        setAvatarUri(publicAvatarUrl); // Actualiza el estado con la URL pública
       } else if (avatarUri?.startsWith("http")) {
         publicAvatarUrl = avatarUri;
+        console.log("Using existing avatar URL:", publicAvatarUrl); // Debugging line
       }
 
       await saveMyProfile(user.id, {
@@ -238,7 +247,7 @@ export default function EditProfile() {
           <View style={styles.avatarRow}>
             <View style={styles.avatarWrap}>
               {avatarUri ? (
-                <Image source={{ uri: avatarUri }} style={styles.avatar} />
+                <Image source={{ uri: `${avatarUri}?t=${Date.now()}` }} style={styles.avatar} resizeMode="cover" />
               ) : (
                 <View style={[styles.avatar, styles.avatarPlaceholder]}>
                   <Text style={{ color: palette.muted, fontWeight: "700" }}>No photo</Text>

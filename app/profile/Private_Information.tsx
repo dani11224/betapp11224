@@ -6,12 +6,13 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useContext, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -55,6 +56,21 @@ export default function PersonalInfo() {
             <Logo />
             <Text style={styles.title}>Personal info</Text>
             <Text style={styles.muted}>ID: {user?.id ? user.id.slice(0, 8) : "—"}</Text>
+          </View>
+
+          {/* Foto de perfil */}
+          <View style={styles.avatarContainer}>
+            {profile?.avatar_url ? (
+              <Image
+                source={{ uri: profile.avatar_url }} // Asume que tienes el campo avatar_url en el perfil
+                style={styles.avatar}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <Text style={{ color: palette.muted, fontWeight: "700" }}>No photo</Text>
+              </View>
+            )}
           </View>
 
           {/* Card with all personal details */}
@@ -146,6 +162,28 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   muted: { color: palette.muted },
+
+  avatarContainer: {
+    alignItems: "center",
+    marginVertical: 20,
+  },
+  avatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 2,
+    borderColor: palette.border,
+  },
+  avatarPlaceholder: {
+    justifyContent: "center",
+    alignItems: "center",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: palette.inputBg,
+    borderWidth: 2,
+    borderColor: palette.border,
+  },
 
   card: {
     backgroundColor: palette.inputBg,

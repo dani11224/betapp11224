@@ -26,6 +26,13 @@ export default function MainLayout() {
         }}
       />
       <Tabs.Screen
+        name="chats"
+        options={{
+          title: "Chats",
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="chat" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="transactions"
         options={{
           title: "Transactions",
