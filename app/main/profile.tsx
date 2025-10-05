@@ -1,15 +1,19 @@
 // app/main/profile.tsx
 import { AuthContext } from "@/contexts/Auth_contexts";
 import { fetchMyProfile } from "@/utils/profiles";
+import { supabase } from "@/utils/supabase";
 import { MaterialIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React, { useContext, useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router"; // ⬅️ añadido useFocusEffect
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react"; // ⬅️ añadido useCallback
 import {
   ActivityIndicator,
+  Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -17,42 +21,87 @@ import { AuroraBackground, Logo, palette } from "../../components/Brand";
 
 export default function Profile() {
   const [hidden, setHidden] = useState(false);
-  const [balance] = useState<number>(250000); // COP
   const { user, logout, isLoading } = useContext(AuthContext);
 
   // ======= Username for header =======
   const [headerUsername, setHeaderUsername] = useState<string>("User");
 
+  // ======= Admin role flag =======
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // ======= Real balance =======
+  const [balance, setBalance] = useState<number>(0);
+
+  // ======= Deposit modal =======
+  const [showDeposit, setShowDeposit] = useState(false);
+  const [depositAmount, setDepositAmount] = useState<string>("");
+
+  // ---- Carga de perfil extraída a función y reutilizada ----
+  const reloadProfile = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const p = await fetchMyProfile(user.id);
+
+      const fromProfiles = p?.username?.trim();
+      const fromMeta =
+        (user.user_metadata as any)?.username?.trim() ||
+        (user.user_metadata as any)?.full_name?.trim() ||
+        (user.user_metadata as any)?.name?.trim();
+      const fromEmail = user.email ? user.email.split("@")[0] : "";
+
+      const finalName =
+        (fromProfiles && fromProfiles.length > 0 && fromProfiles) ||
+        (fromMeta && fromMeta.length > 0 && fromMeta) ||
+        (fromEmail && fromEmail.length > 0 && fromEmail) ||
+        "User";
+
+      setHeaderUsername(finalName);
+      setIsAdmin(String((p as any)?.role || "") === "ADMIN");
+      setBalance(Number((p as any)?.balance ?? 0));
+    } catch {
+      const fallback = user?.email ? user.email.split("@")[0] : "User";
+      setHeaderUsername(fallback);
+    }
+  }, [user?.id]);
+
+  // Carga inicial
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!user?.id) return;
-      try {
-        const p = await fetchMyProfile(user.id);
-        const fromProfiles = p?.username?.trim();
-        const fromMeta =
-          (user.user_metadata as any)?.username?.trim() ||
-          (user.user_metadata as any)?.full_name?.trim() ||
-          (user.user_metadata as any)?.name?.trim();
-        const fromEmail = user.email ? user.email.split("@")[0] : "";
+    reloadProfile();
+  }, [reloadProfile]);
 
-        const finalName =
-          (fromProfiles && fromProfiles.length > 0 && fromProfiles) ||
-          (fromMeta && fromMeta.length > 0 && fromMeta) ||
-          (fromEmail && fromEmail.length > 0 && fromEmail) ||
-          "User";
+  // Recarga cuando la pantalla gana foco (al volver desde Home, etc.)
+  useFocusEffect(
+    useCallback(() => {
+      reloadProfile();
+      return () => {};
+    }, [reloadProfile])
+  );
 
-        if (mounted) setHeaderUsername(finalName);
-      } catch {
-        const fallback = user?.email ? user.email.split("@")[0] : "User";
-        if (mounted) setHeaderUsername(fallback);
-      }
-    })();
+  // Realtime: actualiza balance (y rol/username si cambian) al instante
+  useEffect(() => {
+    if (!user?.id) return;
+    const ch = supabase
+      .channel(`profile-balance:${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
+        (payload) => {
+          const nb = (payload.new as any)?.balance;
+          if (nb !== undefined && nb !== null) setBalance(Number(nb));
+          const nrole = (payload.new as any)?.role;
+          if (nrole !== undefined && nrole !== null) setIsAdmin(String(nrole) === "ADMIN");
+          const nun = (payload.new as any)?.username;
+          if (nun) setHeaderUsername(nun);
+        }
+      )
+      .subscribe();
+
     return () => {
-      mounted = false;
+      supabase.removeChannel(ch);
     };
   }, [user?.id]);
 
+  // Formateo COP
   const formatted = useMemo(() => {
     try {
       return new Intl.NumberFormat("es-CO", {
@@ -68,6 +117,26 @@ export default function Profile() {
   const onLogout = async () => {
     await logout();
     router.replace("/(auth)/login");
+  };
+
+  const openDeposit = () => { setDepositAmount(""); setShowDeposit(true); };
+
+  const confirmDeposit = async () => {
+    const raw = depositAmount.replace(/[^\d.,]/g, "").replace(",", ".");
+    const amount = Number(raw);
+    if (isNaN(amount) || amount <= 0) {
+      Alert.alert("Invalid amount", "Enter a positive number.");
+      return;
+    }
+    try {
+      const { data, error } = await supabase.rpc("top_up_balance", { p_amount: amount });
+      if (error) throw error;
+      setBalance(Number(data ?? 0));    // feedback inmediato
+      setShowDeposit(false);
+      setHidden(false);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not deposit");
+    }
   };
 
   return (
@@ -101,7 +170,7 @@ export default function Profile() {
             </Text>
 
             <View style={styles.actionsRow}>
-              <PrimaryChip icon="add" label="Deposit" onPress={() => { /* TODO */ }} />
+              <PrimaryChip icon="add" label="Deposit" onPress={openDeposit} />
               <PrimaryChip icon="south" label="Withdraw" onPress={() => { /* TODO */ }} />
             </View>
           </View>
@@ -114,6 +183,17 @@ export default function Profile() {
             <Tile icon="notifications" label="Notifications" onPress={() => {}} />
             <Tile icon="support-agent" label="Support" onPress={() => {}} />
           </View>
+
+          {/* Admin tools (only for ADMIN) */}
+          {isAdmin && (
+            <>
+              <Text style={styles.sectionTitle}>Admin</Text>
+              <View style={styles.grid}>
+                <Tile icon="playlist-add" label="Create bet" onPress={() => router.push("/admin/create_bet")} />
+                <Tile icon="list" label="Manage bets" onPress={() => router.push("/admin/bets")} />
+              </View>
+            </>
+          )}
 
           {/* Summary */}
           <Text style={styles.sectionTitle}>Summary</Text>
@@ -141,6 +221,36 @@ export default function Profile() {
 
           <View style={{ height: 28 }} />
         </ScrollView>
+
+        {/* Deposit modal */}
+        <Modal visible={showDeposit} transparent animationType="fade" onRequestClose={() => setShowDeposit(false)}>
+          <View style={styles.modalWrap}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Deposit funds</Text>
+              <Text style={styles.modalHint}>Amount (COP)</Text>
+              <TextInput
+                value={depositAmount}
+                onChangeText={setDepositAmount}
+                inputMode="decimal"
+                keyboardType="numeric"
+                placeholder="50.000"
+                placeholderTextColor={palette.muted}
+                style={styles.modalInput}
+              />
+              <View style={{ height: 8 }} />
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <Pressable onPress={() => setShowDeposit(false)} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.9 }, { flex: 1 }]}>
+                  <MaterialIcons name="close" size={18} color={palette.muted} />
+                  <Text style={styles.ghostBtnText}>Cancel</Text>
+                </Pressable>
+                <Pressable onPress={confirmDeposit} style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.9 }, { flex: 1 }]}>
+                  <MaterialIcons name="check-circle" size={18} color="#fff" />
+                  <Text style={styles.primaryBtnText}>Confirm</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -239,4 +349,38 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   logoutText: { color: "#fff", fontWeight: "800" },
+
+  /* Modal */
+  modalWrap: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center", justifyContent: "center",
+    padding: 20,
+  },
+  modalCard: {
+    width: "100%",
+    backgroundColor: palette.inputBg,
+    borderWidth: 1, borderColor: palette.border,
+    borderRadius: 16, padding: 16,
+  },
+  modalTitle: { color: palette.text, fontWeight: "900", fontSize: 16, marginBottom: 8 },
+  modalHint: { color: palette.muted, marginBottom: 6 },
+  modalInput: {
+    backgroundColor: "#0e1b26",
+    borderWidth: 1, borderColor: palette.border,
+    borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10,
+    color: palette.text,
+  },
+
+  /* Shared buttons used in modal too */
+  primaryBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: palette.accent, paddingVertical: 12, borderRadius: 12,
+  },
+  primaryBtnText: { color: "#fff", fontWeight: "800" },
+  ghostBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    paddingVertical: 10, borderRadius: 12,
+  },
+  ghostBtnText: { color: palette.muted, fontWeight: "800" },
 });

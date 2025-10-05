@@ -19,6 +19,8 @@ export type Profile = {
   last_active?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  /** ADDED: balance del usuario */
+  balance?: number | null;
 };
 
 function scrub(val: any) {
@@ -43,6 +45,8 @@ function pickClean(values: Partial<Profile>) {
     "phone",
     "gender",
     "role",
+    /** ADDED: permitir balance en updates/inserts si lo pasas explícitamente */
+    "balance",
   ];
   const out: Record<string, any> = {};
   for (const k of allowed) {
@@ -55,7 +59,8 @@ export async function fetchMyProfile(userId: string) {
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id,email,name,username,avatar_url,bio,website,location,birth_date,phone,gender,role,points,is_verified,last_active,created_at,updated_at"
+      // ADDED: balance en el select
+      "id,email,name,username,avatar_url,bio,website,location,birth_date,phone,gender,role,points,is_verified,last_active,created_at,updated_at,balance"
     )
     .eq("id", userId)
     .maybeSingle(); // puede no existir aún
@@ -119,6 +124,8 @@ export async function saveMyProfile(userId: string, values: Partial<Profile>) {
       phone: cleaned.phone ?? null,
       gender: cleaned.gender ?? null,
       role: cleaned.role ?? "CLIENT", // asigna un rol por defecto
+      // ADDED: si envías un balance explícito en el create, se respeta; si no, usa DEFAULT 0
+      balance: cleaned.balance ?? undefined,
       updated_at: now,
       // created_at lo pone DEFAULT NOW()
     };

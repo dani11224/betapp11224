@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
 import { AuthProvider } from "@/contexts/Auth_contexts";
-import { DataProvider } from "@/contexts/data_contexts"; // 👈 importa tu DataProvider
+import { DataProvider } from "@/contexts/data_contexts"; 
 
 export default function RootLayout() {
   return (

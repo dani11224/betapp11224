@@ -1,63 +1,85 @@
+import { fetchMyTransactions, WalletTx } from "@/utils/transactions";
 import { MaterialIcons } from "@expo/vector-icons";
-import React, { useMemo } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { AuroraBackground, palette } from "../../components/Brand";
-
-type Tx = { id: string; type: "in" | "out"; label: string; date: string; amount: number };
-
-const MOCK: Tx[] = [
-  { id: "1", type: "in",  label: "PSE Deposit",         date: "2025-09-05 10:12", amount: 150000 },
-  { id: "2", type: "out", label: "Bet #A-9211",          date: "2025-09-06 14:35", amount: -30000 },
-  { id: "3", type: "in",  label: "Winnings ticket #88",  date: "2025-09-07 19:02", amount: 42000 },
-  { id: "4", type: "out", label: "Nequi Withdrawal",     date: "2025-09-08 08:20", amount: -50000 },
-];
+import { palette } from "../../components/Brand";
 
 export default function Transactions() {
-  const total = useMemo(() => MOCK.reduce((s, t) => s + t.amount, 0), []);
-  const fmt = (n: number) => {
-    try { return new Intl.NumberFormat("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0}).format(n); }
+  const [txs, setTxs] = useState<WalletTx[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    const rows = await fetchMyTransactions(100);
+    setTxs(rows);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const { totalIn, totalOut } = useMemo(() => {
+    let tin = 0, tout = 0;
+    for (const t of txs) {
+      const a = Number(t.amount || 0);
+      if (a >= 0) tin += a; else tout += Math.abs(a);
+    }
+    return { totalIn: tin, totalOut: tout };
+  }, [txs]);
+
+  const formatCOP = (n: number) => {
+    try { return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n); }
     catch { return `$ ${Math.round(n).toLocaleString("es-CO")}`; }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        <AuroraBackground />
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.scroll}                            // <- pinta fondo del scroll
+          contentContainerStyle={styles.content}           // <- llena alto para evitar “arribita”
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={async () => {
+              setRefreshing(true);
+              try { await load(); } finally { setRefreshing(false); }
+            }} />
+          }
+        >
           <Text style={styles.title}>Transactions</Text>
 
           <View style={styles.summary}>
-            <Text style={styles.summaryLabel}>Period balance</Text>
-            <Text style={[styles.summaryValue, { color: total >= 0 ? "#4caf50" : "#ff5252" }]}>
-              {fmt(total)}
-            </Text>
+            <Text style={styles.summaryLabel}>In</Text>
+            <Text style={styles.summaryValue}>{formatCOP(totalIn)}</Text>
+            <View style={{ height: 8 }} />
+            <Text style={styles.summaryLabel}>Out</Text>
+            <Text style={styles.summaryValue}>{formatCOP(totalOut)}</Text>
           </View>
 
-          <View style={{ gap: 10 }}>
-            {MOCK.map(tx => (
-              <View key={tx.id} style={styles.row}>
+          {txs.map(tx => {
+            const isIn = Number(tx.amount) >= 0;
+            const icon = isIn ? "south_west" : "north_east";
+            const amountText = `${isIn ? "+" : "−"}${formatCOP(Math.abs(Number(tx.amount)))}`;
+            const date = new Date(tx.created_at).toLocaleString("es-CO");
+            return (
+              <View key={tx.id} style={[styles.row, { marginBottom: 10 }]}>
                 <View style={styles.left}>
-                  <View style={[styles.iconWrap, tx.type === "in" ? styles.inBg : styles.outBg]}>
-                    <MaterialIcons
-                      name={tx.type === "in" ? "arrow-downward" : "arrow-upward"}
-                      size={16}
-                      color="#fff"
-                    />
+                  <View style={[styles.iconWrap, isIn ? styles.inBg : styles.outBg]}>
+                    <MaterialIcons name={icon as any} size={18} color="#fff" />
                   </View>
                   <View>
-                    <Text style={styles.label}>{tx.label}</Text>
-                    <Text style={styles.meta}>{tx.date}</Text>
+                    <Text style={styles.label}>{tx.label || tx.type}</Text>
+                    <Text style={styles.meta}>{date}</Text>
                   </View>
                 </View>
-                <Text style={[styles.amount, { color: tx.amount >= 0 ? "#4caf50" : "#ff5252" }]}>
-                  {fmt(tx.amount)}
-                </Text>
+                <Text style={[styles.amount, { color: isIn ? "#2e7d32" : "#b71c1c" }]}>{amountText}</Text>
               </View>
-            ))}
-          </View>
+            );
+          })}
 
-          <View style={{ height: 28 }} />
+          {txs.length === 0 && (
+            <Text style={[styles.meta, { textAlign: "center", marginTop: 12 }]}>
+              No transactions yet.
+            </Text>
+          )}
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -65,12 +87,11 @@ export default function Transactions() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: palette.bg,
-  },
-  container: { flex: 1, backgroundColor: palette.bg },
-  content: { padding: 20, paddingBottom: 32 },
+  safeArea: { flex: 1, backgroundColor: palette.bg },     // <- fondo del área segura
+  container: { flex: 1, backgroundColor: palette.bg },    // <- fondo del contenedor
+  scroll: { flex: 1, backgroundColor: palette.bg },       // <- fondo del ScrollView
+  content: { padding: 16, paddingBottom: 24, flexGrow: 1 }, // <- llenar alto para evitar gap
+
   title: { color: palette.text, fontSize: 18, fontWeight: "800", marginBottom: 12 },
 
   summary: {
