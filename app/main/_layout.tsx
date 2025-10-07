@@ -33,6 +33,20 @@ export default function MainLayout() {
         }}
       />
       <Tabs.Screen
+        name="my-bets"
+        options={{
+          href: null,          // 👈 la oculta del tab bar
+          headerShown: false,
+        }}
+      />
+            <Tabs.Screen
+        name="manage-bets"
+        options={{
+          href: null,          // 👈 la oculta del tab bar
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
         name="transactions"
         options={{
           title: "Transactions",

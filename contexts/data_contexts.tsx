@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { supabase } from "../utils/supabase";
 import { useAuth } from "./Auth_contexts";
@@ -42,9 +41,11 @@ interface DataContextType {
 
   fetchChats: () => Promise<void>;
   fetchMessages: (chatId: string) => Promise<void>;
-  // ✅ firma correcta
   sendMessage: (chatId: string, text: string, media?: any) => Promise<void>;
   addChat: (userId2: string) => Promise<AddChatResult>;
+
+  // 👇 NUEVO: para pushear mensajes entrantes del canal de la pantalla
+  addMessage: (msg: Message) => void;
 }
 
 const defaultData: DataContextType = {
@@ -56,6 +57,7 @@ const defaultData: DataContextType = {
   fetchMessages: async () => {},
   sendMessage: async () => {},
   addChat: async () => ({ chat: null, error: "DataProvider not mounted" }),
+  addMessage: () => {},
 };
 
 const DataContext = createContext<DataContextType>(defaultData);
@@ -63,15 +65,22 @@ export const useData = () => useContext(DataContext);
 
 export const DataProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
-  const [chats, setChats] = useState<ChatJoined[]>([]); // ✅ tipo correcto aquí
+  const [chats, setChats] = useState<ChatJoined[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
   const currentChatIdRef = useRef<string | null>(null);
   useEffect(() => { currentChatIdRef.current = currentChatId; }, [currentChatId]);
 
-  // ---------- QUERIES ----------
+  // 👇 NUEVO: push local sin duplicados
+  const addMessage = (msg: Message) => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      return [...prev, msg];
+    });
+  };
 
+  // ---------- QUERIES ----------
   const fetchChats = async () => {
     if (!user) return;
 
@@ -90,7 +99,6 @@ export const DataProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
-    // 🔧 Normaliza user1/user2: si vienen como array, toma el primero; si vienen como objeto, úsalo; si no, null.
     const rows: ChatJoined[] = (data ?? []).map((r: any) => ({
       id: r.id,
       user_id: r.user_id,
@@ -164,24 +172,11 @@ export const DataProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   // ---------- REALTIME ----------
-
   useEffect(() => {
     if (!user) return;
 
-    const msgsChannel = supabase
-      .channel("realtime:messages")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        (payload) => {
-          const msg = payload.new as Message;
-          if (msg.chat_id === currentChatIdRef.current) {
-            setMessages((prev) => [...prev, msg]);
-          }
-        }
-      )
-      .subscribe();
-
+    // ❌ quitamos el canal global de messages para evitar duplicados
+    // ✅ dejamos solo el canal de chats (para refrescar lista)
     const chatsChannel = supabase
       .channel("realtime:chats")
       .on(
@@ -197,7 +192,6 @@ export const DataProvider = ({ children }: { children: React.ReactNode }) => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(msgsChannel);
       supabase.removeChannel(chatsChannel);
     };
   }, [user]);
@@ -222,6 +216,7 @@ export const DataProvider = ({ children }: { children: React.ReactNode }) => {
         fetchMessages,
         sendMessage,
         addChat,
+        addMessage, // 👈 expuesto
       }}
     >
       {children}

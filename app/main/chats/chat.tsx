@@ -1,31 +1,33 @@
-import React, { useRef, useState, useEffect } from "react";
-import {
-  View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TextInput, Pressable, KeyboardAvoidingView, Platform,
-} from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
-import { palette } from "../../../components/Brand";
-import { useLocalSearchParams, router } from "expo-router";
 import { useData } from "@/contexts/data_contexts";
+import { MaterialIcons } from "@expo/vector-icons";
+import { router, useLocalSearchParams } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  KeyboardAvoidingView, Platform,
+  Pressable,
+  SafeAreaView, ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { palette } from "../../../components/Brand";
 import { useAuth } from "../../../contexts/Auth_contexts";
+import { supabase } from "../../../utils/supabase"; // 👈 importa supabase
 
 export default function ChatScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const rawId = Array.isArray(params.id) ? params.id[0] : params.id;
   const chatId = rawId && rawId !== "undefined" && rawId !== "null" ? rawId : null;
 
-  // 👇 ahora también traemos chats (ya con user1/user2)
-  const { chats, messages, fetchMessages, sendMessage, setCurrentChatId } = useData();
+  const { chats, messages, fetchMessages, sendMessage, setCurrentChatId, addMessage } = useData(); // 👈 addMessage
   const { user } = useAuth();
   const [input, setInput] = useState("");
   const scrollRef = useRef<ScrollView>(null);
 
-  // Encuentra el chat y el "otro" usuario
   const chat = chatId ? chats.find((c) => c.id === chatId) : undefined;
   const myId = user?.id ?? "";
-  const peer = chat
-    ? (chat.user_id === myId ? chat.user2 : chat.user1)
-    : undefined;
+  const peer = chat ? (chat.user_id === myId ? chat.user2 : chat.user1) : undefined;
 
   const headerTitle =
     (peer?.name && peer.name.trim()) ||
@@ -39,6 +41,34 @@ export default function ChatScreen() {
       fetchMessages(chatId);
     }
     return () => setCurrentChatId(null);
+  }, [chatId]);
+
+  // 👇 Suscripción realtime SOLO a este chat, con filtro server-side
+  useEffect(() => {
+    if (!chatId) return;
+
+    const channel = supabase
+      .channel(`chat:${chatId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `chat_id=eq.${chatId}`, // 🔥 clave
+        },
+        (payload) => {
+          const msg = payload.new as any;
+          addMessage(msg); // push local sin refetch
+        }
+      )
+      .subscribe((status) => {
+        if (__DEV__) console.log(`RT chat:${chatId} =>`, status);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [chatId]);
 
   const chatMessages = chatId ? messages.filter((m) => m.chat_id === chatId) : [];

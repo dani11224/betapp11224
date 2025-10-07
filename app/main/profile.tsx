@@ -190,7 +190,7 @@ export default function Profile() {
               <Text style={styles.sectionTitle}>Admin</Text>
               <View style={styles.grid}>
                 <Tile icon="playlist-add" label="Create bet" onPress={() => router.push("/admin/create_bet")} />
-                <Tile icon="list" label="Manage bets" onPress={() => router.push("/admin/bets")} />
+                <Tile icon="list" label="Manage bets" onPress={() => router.push("/main/manage-bets")} />
               </View>
             </>
           )}

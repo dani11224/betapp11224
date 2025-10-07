@@ -1,7 +1,9 @@
-// app/main/home.tsx (o el nombre de tu Home actual)
+// app/main/home.tsx
 import { supabase } from "@/utils/supabase";
 import { MaterialIcons } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "expo-router";
+import LottieView from "lottie-react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -16,6 +18,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AuroraBackground, Logo, palette } from "../../components/Brand";
+import LoadingOverlay from "../../components/LoadingOverlay";
+
+import {
+  addFavorite,
+  listMyFavoriteIds,
+  removeFavorite,
+} from "../admin/bets";
 
 type BetOption = { id: string; label: string; odds: number };
 type Bet = {
@@ -32,10 +41,136 @@ type Bet = {
   bet_options: BetOption[];
 };
 
+type CoinSide = "HEADS" | "TAILS";
+const COIN_LABEL: Record<CoinSide, string> = { HEADS: "Cara", TAILS: "Sello" };
+
+/* --- Minijuego: Coin Flip --- */
+function CoinFlipGame() {
+  const [choice, setChoice] = useState<CoinSide | null>(null);
+  const [status, setStatus] = useState<"idle" | "flipping" | "done">("idle");
+  const [outcome, setOutcome] = useState<CoinSide | null>(null);
+
+  const lottieRef = useRef<LottieView>(null);
+
+  const onFlip = () => {
+    if (!choice || status === "flipping") return;
+    setStatus("flipping");
+    setOutcome(null);
+
+    // Resultado justo 50/50
+    const result: CoinSide = Math.random() < 0.5 ? "HEADS" : "TAILS";
+    setOutcome(result);
+
+    // Reproducir animación
+    requestAnimationFrame(() => {
+      lottieRef.current?.reset();
+      lottieRef.current?.play();
+    });
+
+    // Duración estimada de la animación (ajústala si tu JSON dura distinto)
+    setTimeout(() => setStatus("done"), 1800);
+  };
+
+  const onReset = () => {
+    setStatus("idle");
+    setOutcome(null);
+  };
+
+  const won = outcome && choice && outcome === choice;
+
+  return (
+    <View style={styles.coinCard}>
+      <Text style={styles.coinTitle}>Coin Flip</Text>
+      <Text style={styles.coinHint}>Pick your side and flip the coin.</Text>
+
+      {/* Elección Cara/Sello */}
+      <View style={styles.coinChoiceRow}>
+        {(["HEADS", "TAILS"] as CoinSide[]).map((opt) => {
+          const active = choice === opt;
+          return (
+            <Pressable
+              key={opt}
+              onPress={() => setChoice(opt)}
+              disabled={status === "flipping"}
+              style={({ pressed }) => [
+                styles.coinChip,
+                active && styles.coinChipActive,
+                pressed && { opacity: 0.9 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Choose ${COIN_LABEL[opt]}`}
+            >
+              <Text style={[styles.coinChipText, active && styles.coinChipTextActive]}>
+                {COIN_LABEL[opt]}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Animación */}
+      <View style={styles.coinAnimWrap}>
+        <LottieView
+          ref={lottieRef}
+          source={require("../../assets/lottie/coin.json")}
+          // Si prefieres remoto: source={{ uri: "https://.../coin.json" }}
+          autoPlay={false}
+          loop={false}
+          style={{ width: 200, height: 200 }}
+        />
+      </View>
+
+      {/* Botones / Resultado */}
+      {status !== "done" ? (
+        <Pressable
+          onPress={onFlip}
+          disabled={!choice || status === "flipping"}
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            pressed && { opacity: 0.9 },
+            (!choice || status === "flipping") && { opacity: 0.6 },
+          ]}
+        >
+          <MaterialIcons name="casino" size={18} color="#fff" />
+          <Text style={styles.primaryBtnText}>
+            {status === "flipping" ? "Flipping..." : "Flip"}
+          </Text>
+        </Pressable>
+      ) : (
+        <View style={{ gap: 10 }}>
+          <Text
+            style={[
+              styles.resultText,
+              won ? { color: "#5CFF8A" } : { color: "#FF6B6B" },
+            ]}
+          >
+            {won ? "You won!" : "You lost."} It was {COIN_LABEL[outcome as CoinSide]}.
+          </Text>
+          <Pressable
+            onPress={onReset}
+            style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.9 }]}
+          >
+            <MaterialIcons name="refresh" size={18} color={palette.muted} />
+            <Text style={styles.ghostBtnText}>Play again</Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   // ======= Data =======
   const [bets, setBets] = useState<Bet[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+
+  // ======= Loading overlays =======
+  const [screenLoading, setScreenLoading] = useState(true); // carga inicial
+  const [busyAction, setBusyAction] = useState(false); // acciones (RPC) como place bet
+
+  // ======= Favoritos (ids) =======
+  const [favIds, setFavIds] = useState<Set<string>>(new Set());
+  const [togglingFavs, setTogglingFavs] = useState<Set<string>>(new Set()); // evita doble tap
 
   // ======= Place bet modal =======
   const [showModal, setShowModal] = useState(false);
@@ -43,27 +178,57 @@ export default function HomeScreen() {
   const [selectedOpt, setSelectedOpt] = useState<BetOption | null>(null);
   const [stake, setStake] = useState<string>("");
 
-  const load = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("bets")
-      .select(`
-        id,title,description,image_url,base_cost,stake_min,stake_max,status,opens_at,closes_at,
-        bet_options:bet_options!bet_options_bet_id_fkey(id,label,odds)
-      `)
-      .eq("status", "OPEN")
-      .order("created_at", { ascending: false });
-    if (error) {
-      Alert.alert("Error", error.message);
-      return;
-    }
-    setBets((data ?? []) as Bet[]);
-  }, []);
+  // ======= util =======
+  const router = useRouter();
 
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(async () => {
+    try {
+      if (!refreshing) setScreenLoading(true);
+
+      const { data, error } = await supabase
+        .from("bets")
+        .select(`
+          id,title,description,image_url,base_cost,stake_min,stake_max,status,opens_at,closes_at,
+          bet_options:bet_options!bet_options_bet_id_fkey(id,label,odds)
+        `)
+        .eq("status", "OPEN")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        Alert.alert("Error", error.message);
+        return;
+      }
+      setBets((data ?? []) as Bet[]);
+    } finally {
+      setScreenLoading(false);
+    }
+  }, [refreshing]);
+
+  // Cargar apuestas
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Cargar mis favoritos (ids) una vez al entrar
+  useEffect(() => {
+    (async () => {
+      try {
+        const ids = await listMyFavoriteIds();
+        setFavIds(new Set(ids));
+      } catch (e: any) {
+        // Si el usuario no tiene permisos o aún no hay favoritos, ignoramos
+        // Alert.alert("Favorites", e?.message ?? "Could not load favorites");
+      }
+    })();
+  }, []);
 
   const formatCOP = (n: number) => {
     try {
-      return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
+      return new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0,
+      }).format(n);
     } catch {
       return `$ ${Math.round(n).toLocaleString("es-CO")}`;
     }
@@ -76,6 +241,34 @@ export default function HomeScreen() {
     setShowModal(true);
   };
 
+  // Toggle favorito con UI optimista
+  const onToggleFav = async (betId: string) => {
+    // evita spams
+    if (togglingFavs.has(betId)) return;
+
+    const isFav = favIds.has(betId);
+    const nextFavs = new Set(favIds);
+    isFav ? nextFavs.delete(betId) : nextFavs.add(betId);
+
+    // Optimista
+    setFavIds(nextFavs);
+    const nextToggling = new Set(togglingFavs);
+    nextToggling.add(betId);
+    setTogglingFavs(nextToggling);
+
+    try {
+      if (isFav) await removeFavorite(betId);
+      else await addFavorite(betId);
+    } catch (e: any) {
+      // Revertimos si falla
+      setFavIds(favIds);
+      Alert.alert("Favorites", e?.message ?? "Could not update favorite");
+    } finally {
+      nextToggling.delete(betId);
+      setTogglingFavs(new Set(nextToggling));
+    }
+  };
+
   const confirmPlace = async () => {
     if (!selectedBet || !selectedOpt) return;
     const raw = stake.replace(/[^\d.,]/g, "").replace(",", ".");
@@ -85,7 +278,6 @@ export default function HomeScreen() {
       return;
     }
 
-    // (client-side) rango informativo; el servidor vuelve y valida con RLS+RPC
     const min = Number(selectedBet.stake_min ?? 0);
     const max = selectedBet.stake_max == null ? null : Number(selectedBet.stake_max);
     if (amt < min) {
@@ -98,6 +290,7 @@ export default function HomeScreen() {
     }
 
     try {
+      setBusyAction(true); // overlay mientras corre el RPC
       const { error } = await supabase.rpc("place_wager", {
         p_bet_id: selectedBet.id,
         p_option_id: selectedOpt.id,
@@ -105,10 +298,16 @@ export default function HomeScreen() {
       });
       if (error) throw error;
       setShowModal(false);
-      Alert.alert("Placed!", `You placed ${formatCOP(amt)} at ${selectedOpt.odds.toFixed(2)}.`);
-      // Si quieres, aquí puedes refresh transacciones o mostrar slip
+      Alert.alert(
+        "Placed!",
+        `You placed ${formatCOP(amt)} at ${selectedOpt.odds.toFixed(2)}.`
+      );
+      // Opcional: recargar apuestas/transacciones
+      // await load();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Could not place bet");
+    } finally {
+      setBusyAction(false);
     }
   };
 
@@ -124,10 +323,23 @@ export default function HomeScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={async () => {
-              setRefreshing(true);
-              try { await load(); } finally { setRefreshing(false); }
-            }} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={async () => {
+                setRefreshing(true);
+                try {
+                  await load();
+                  // refrescar favoritos también si quieres:
+                  const ids = await listMyFavoriteIds();
+                  setFavIds(new Set(ids));
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
+              tintColor={palette.accent}
+              progressBackgroundColor={palette.inputBg}
+              colors={[palette.accent]}
+            />
           }
         >
           {/* Hero con logo */}
@@ -145,11 +357,11 @@ export default function HomeScreen() {
           <View style={styles.quickRow}>
             <QuickAction icon="live-tv" label="Live" onPress={() => {}} />
             <QuickAction icon="bolt" label="Boosts" onPress={() => {}} />
-            <QuickAction icon="receipt-long" label="My Bets" onPress={() => {}} />
+            <QuickAction icon="receipt-long" label="My Bets" onPress={() => useRouter().push("/main/my-bets")} />
             <QuickAction icon="search" label="Explore" onPress={() => {}} />
           </View>
 
-          {/* Open bets (reemplaza Today's Highlights) */}
+          {/* Open bets */}
           <Text style={styles.sectionTitle}>Open bets</Text>
 
           {bets.length === 0 && (
@@ -158,43 +370,90 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {bets.map((bet) => (
-            <View key={bet.id} style={[styles.card, { marginBottom: 12 }]}>
-              <View style={{ flexDirection: "row", gap: 12 }}>
-                {/* Imagen (si existe) */}
-                {bet.image_url ? (
-                  <Image source={{ uri: bet.image_url }} style={styles.betImg} />
-                ) : (
-                  <View style={[styles.betImg, { backgroundColor: "#0f2a3c", borderWidth: 1, borderColor: "#18445c" }]} />
-                )}
+          {bets.map((bet) => {
+            const isFav = favIds.has(bet.id);
+            const isBusy = togglingFavs.has(bet.id);
+            return (
+              <View key={bet.id} style={[styles.card, { marginBottom: 12 }]}>
+                {/* Botón favorito (esquina superior derecha) */}
+                <View style={styles.favWrap}>
+                  <Pressable
+                    onPress={() => onToggleFav(bet.id)}
+                    disabled={isBusy}
+                    style={({ pressed }) => [
+                      styles.favBtn,
+                      pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+                    ]}
+                    accessibilityLabel={isFav ? "Remove from favorites" : "Add to favorites"}
+                    accessibilityHint="Toggle favorite"
+                  >
+                    <MaterialIcons
+                      name={isFav ? "favorite" : "favorite-border"}
+                      size={18}
+                      color={isFav ? palette.accent : palette.muted}
+                    />
+                  </Pressable>
+                </View>
 
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.matchTeams}>{bet.title}</Text>
-                  {bet.description ? (
-                    <Text style={styles.matchMeta} numberOfLines={2}>{bet.description}</Text>
-                  ) : null}
-                  <View style={{ height: 6 }} />
-                  {/* Odds */}
-                  <View style={styles.oddsRow}>
-                    {bet.bet_options?.map((o) => (
-                      <OddChip key={o.id} label={o.label} value={o.odds} onPress={() => openPlaceModal(bet, o)} />
-                    ))}
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  {/* Imagen (si existe) */}
+                  {bet.image_url ? (
+                    <Image source={{ uri: bet.image_url }} style={styles.betImg} />
+                  ) : (
+                    <View
+                      style={[
+                        styles.betImg,
+                        {
+                          backgroundColor: "#0f2a3c",
+                          borderWidth: 1,
+                          borderColor: "#18445c",
+                        },
+                      ]}
+                    />
+                  )}
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.matchTeams}>{bet.title}</Text>
+                    {bet.description ? (
+                      <Text style={styles.matchMeta} numberOfLines={2}>
+                        {bet.description}
+                      </Text>
+                    ) : null}
+                    <View style={{ height: 6 }} />
+                    {/* Odds */}
+                    <View style={styles.oddsRow}>
+                      {bet.bet_options?.map((o) => (
+                        <OddChip
+                          key={o.id}
+                          label={o.label}
+                          value={o.odds}
+                          onPress={() => openPlaceModal(bet, o)}
+                        />
+                      ))}
+                    </View>
+                    {/* Min/Max stake info */}
+                    <Text style={[styles.matchMeta, { marginTop: 6 }]}>
+                      Min {formatCOP(Number(bet.stake_min ?? 0))}
+                      {bet.stake_max != null
+                        ? ` · Max ${formatCOP(Number(bet.stake_max))}`
+                        : ""}
+                    </Text>
                   </View>
-                  {/* Min/Max stake info */}
-                  <Text style={[styles.matchMeta, { marginTop: 6 }]}>
-                    Min {formatCOP(Number(bet.stake_min ?? 0))}
-                    {bet.stake_max != null ? ` · Max ${formatCOP(Number(bet.stake_max))}` : ""}
-                  </Text>
                 </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
 
-          {/* Banner / promo (lo mantengo) */}
+          {/* --- Mini-game: Coin Flip (debajo de Open bets) --- */}
+          <CoinFlipGame />
+
+          {/* Banner / promo */}
           <View style={styles.promo}>
             <View style={styles.promoLeft}>
               <Text style={styles.promoTitle}>Bet Boost</Text>
-              <Text style={styles.promoText}>+15% on 3+ selections. Limited time.</Text>
+              <Text style={styles.promoText}>
+                +15% on 3+ selections. Limited time.
+              </Text>
               <Pressable style={[styles.chip, { marginTop: 10 }]}>
                 <MaterialIcons name="bolt" size={16} color="#fff" />
                 <Text style={styles.chipText}>Activate</Text>
@@ -212,7 +471,12 @@ export default function HomeScreen() {
         </ScrollView>
 
         {/* Modal Place Bet */}
-        <Modal visible={showModal} transparent animationType="fade" onRequestClose={() => setShowModal(false)}>
+        <Modal
+          visible={showModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowModal(false)}
+        >
           <View style={styles.modalWrap}>
             <View style={styles.modalCard}>
               <Text style={styles.modalTitle}>Place bet</Text>
@@ -222,7 +486,9 @@ export default function HomeScreen() {
               {selectedBet && (
                 <Text style={[styles.modalHint, { marginTop: 2 }]}>
                   Min {formatCOP(Number(selectedBet.stake_min ?? 0))}
-                  {selectedBet.stake_max != null ? ` · Max ${formatCOP(Number(selectedBet.stake_max))}` : ""}
+                  {selectedBet.stake_max != null
+                    ? ` · Max ${formatCOP(Number(selectedBet.stake_max))}`
+                    : ""}
                 </Text>
               )}
 
@@ -239,11 +505,25 @@ export default function HomeScreen() {
 
               <View style={{ height: 8 }} />
               <View style={{ flexDirection: "row", gap: 10 }}>
-                <Pressable onPress={() => setShowModal(false)} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.9 }, { flex: 1 }]}>
+                <Pressable
+                  onPress={() => setShowModal(false)}
+                  style={({ pressed }) => [
+                    styles.ghostBtn,
+                    pressed && { opacity: 0.9 },
+                    { flex: 1 },
+                  ]}
+                >
                   <MaterialIcons name="close" size={18} color={palette.muted} />
                   <Text style={styles.ghostBtnText}>Cancel</Text>
                 </Pressable>
-                <Pressable onPress={confirmPlace} style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.9 }, { flex: 1 }]}>
+                <Pressable
+                  onPress={confirmPlace}
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    pressed && { opacity: 0.9 },
+                    { flex: 1 },
+                  ]}
+                >
                   <MaterialIcons name="check-circle" size={18} color="#fff" />
                   <Text style={styles.primaryBtnText}>Confirm</Text>
                 </Pressable>
@@ -252,6 +532,13 @@ export default function HomeScreen() {
           </View>
         </Modal>
       </View>
+
+      {/* Overlay global de carga (ruleta Lottie) */}
+      <LoadingOverlay
+        visible={screenLoading || busyAction}
+        message={screenLoading ? "Recargando la página..." : "Procesando..."}
+        lockUntil="cycle"
+      />
     </SafeAreaView>
   );
 }
@@ -267,14 +554,25 @@ function QuickAction({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={({ pressed }) => [styles.qa, pressed && { opacity: 0.9 }]} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [styles.qa, pressed && { opacity: 0.9 }]}
+      onPress={onPress}
+    >
       <MaterialIcons name={icon} size={22} color={palette.text} />
       <Text style={styles.qaLabel}>{label}</Text>
     </Pressable>
   );
 }
 
-function OddChip({ label, value, onPress }: { label: string; value: number; onPress: () => void }) {
+function OddChip({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value: number;
+  onPress: () => void;
+}) {
   return (
     <Pressable style={styles.oddChip} onPress={onPress}>
       <Text style={styles.oddLabel}>{label}</Text>
@@ -315,17 +613,29 @@ const styles = StyleSheet.create({
   qaLabel: { color: palette.text, fontWeight: "700", marginTop: 6 },
 
   /* Secciones */
-  sectionTitle: { color: palette.text, fontSize: 16, fontWeight: "700", marginTop: 18, marginBottom: 10 },
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 16,
+    fontWeight: "700",
+    marginTop: 18,
+    marginBottom: 10,
+  },
 
   /* Card de apuesta */
   card: {
+    position: "relative",
     backgroundColor: palette.inputBg,
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 18,
     padding: 12,
   },
-  betImg: { width: 86, height: 86, borderRadius: 12, backgroundColor: "#0f2a3c" },
+  betImg: {
+    width: 86,
+    height: 86,
+    borderRadius: 12,
+    backgroundColor: "#0f2a3c",
+  },
 
   matchTeams: { color: palette.text, fontWeight: "700" },
   matchMeta: { color: palette.muted, marginTop: 2 },
@@ -344,6 +654,24 @@ const styles = StyleSheet.create({
   oddLabel: { color: "#9bb7c6", fontWeight: "700", fontSize: 12 },
   oddValue: { color: "#fff", fontWeight: "700", marginTop: 2 },
 
+  // Corazón
+  favWrap: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    zIndex: 2,
+  },
+  favBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(17,46,65,0.9)",
+    borderWidth: 1,
+    borderColor: "#18445c",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   /* Promo */
   promo: {
     marginTop: 18,
@@ -359,12 +687,22 @@ const styles = StyleSheet.create({
   promoLeft: { flex: 1 },
   promoTitle: { color: palette.text, fontWeight: "800", fontSize: 16 },
   promoText: { color: palette.muted, marginTop: 4 },
-  promoImg: { width: 84, height: 84, borderRadius: 12, backgroundColor: "#0f2a3c" },
+  promoImg: {
+    width: 84,
+    height: 84,
+    borderRadius: 12,
+    backgroundColor: "#0f2a3c",
+  },
 
   /* Buttons compartidos (modal) */
   primaryBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    backgroundColor: palette.accent, paddingVertical: 12, borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: palette.accent,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
   primaryBtnText: { color: "#fff", fontWeight: "800" },
   chip: {
@@ -380,23 +718,35 @@ const styles = StyleSheet.create({
   chipText: { color: "#fff", fontWeight: "800" },
 
   /* Modal */
-  modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 20 },
+  modalWrap: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
   modalCard: {
-    width: "100%", backgroundColor: palette.inputBg,
-    borderWidth: 1, borderColor: palette.border,
-    borderRadius: 16, padding: 16,
+    width: "100%",
+    backgroundColor: palette.inputBg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 16,
+    padding: 16,
   },
   modalTitle: { color: palette.text, fontWeight: "900", fontSize: 16, marginBottom: 6 },
   modalHint: { color: palette.muted },
   modalInput: {
     marginTop: 6,
     backgroundColor: "#0e1b26",
-    borderWidth: 1, borderColor: palette.border,
-    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     color: palette.text,
   },
 
-    ghostBtn: {
+  ghostBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -405,4 +755,51 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   ghostBtnText: { color: palette.muted, fontWeight: "800" },
+
+  /* Coin Flip card */
+  coinCard: {
+    marginTop: 16,
+    backgroundColor: palette.inputBg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 18,
+    padding: 16,
+  },
+  coinTitle: { color: palette.text, fontWeight: "900", fontSize: 16 },
+  coinHint: { color: palette.muted, marginTop: 4 },
+
+  coinChoiceRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  coinChip: {
+    flex: 1,
+    backgroundColor: "#112e41",
+    borderWidth: 1,
+    borderColor: "#18445c",
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  coinChipActive: {
+    backgroundColor: palette.accent,
+    borderColor: palette.accent,
+  },
+  coinChipText: { color: "#9bb7c6", fontWeight: "800" },
+  coinChipTextActive: { color: "#0b1220" },
+
+  coinAnimWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 10,
+  },
+
+  resultText: {
+    textAlign: "center",
+    fontWeight: "900",
+    fontSize: 16,
+    marginTop: 6,
+  },
 });

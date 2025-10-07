@@ -68,3 +68,60 @@ export async function placeWager(betId: string, optionId: string, stake: number)
   if (error) throw error;
   return data as string;
 }
+
+/** Marca una apuesta como favorita del usuario actual */
+export async function addFavorite(betId: string) {
+  const { error } = await supabase.rpc("add_favorite", { p_bet_id: betId });
+  if (error) throw error;
+}
+
+/** Quita una apuesta de favoritos del usuario actual */
+export async function removeFavorite(betId: string) {
+  const { error } = await supabase.rpc("remove_favorite", { p_bet_id: betId });
+  if (error) throw error;
+}
+
+/** Alterna favorito (optimista si quieres en UI) */
+export async function toggleFavorite(betId: string, isFavNow: boolean) {
+  if (isFavNow) return removeFavorite(betId);
+  return addFavorite(betId);
+}
+
+/** ¿Esta apuesta está en mis favoritos? */
+export async function isFavorite(betId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc("is_favorite", { p_bet_id: betId });
+  if (error) throw error;
+  return !!data;
+}
+
+/** Devuelve solo los IDs de mis favoritos (útil para pintar corazones) */
+export async function listMyFavoriteIds(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("bet_favorites")
+    .select("bet_id"); // RLS garantiza solo los tuyos
+  if (error) throw error;
+  return (data ?? []).map((r: any) => r.bet_id as string);
+}
+
+/** (Opcional) Devuelve mis favoritos con datos completos + opciones */
+export function listMyFavoriteBetsWithOptions() {
+  // Gracias a la FK, PostgREST permite 'bet:bets(...)'
+  return supabase
+    .from("bet_favorites")
+    .select(`
+      created_at,
+      bet:bets(
+        id,title,description,image_url,base_cost,stake_min,stake_max,status,opens_at,closes_at,
+        bet_options(id,label,odds)
+      )
+    `)
+    .order("created_at", { ascending: false });
+}
+
+/** (Opcional) Usar el RPC list_favorites() si prefieres función del lado servidor */
+export async function listMyFavoriteBetsRPC() {
+  const { data, error } = await supabase.rpc("list_favorites");
+  if (error) throw error;
+  return data;
+}
+
